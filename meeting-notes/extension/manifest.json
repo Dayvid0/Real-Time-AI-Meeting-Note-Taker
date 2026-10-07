@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "Meeting Notes (P1: audio capture)",
+  "version": "0.1.0",
+  "minimum_chrome_version": "116",
+  "permissions": ["tabCapture", "offscreen", "sidePanel", "activeTab"],
+  "action": { "default_title": "Start / stop capture" },
+  "side_panel": { "default_path": "panel.html" },
+  "background": { "service_worker": "background.js" }
+}
