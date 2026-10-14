@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Meeting Notes AI Offscreen</title>
+</head>
+<body>
+  <script>
+    // Offscreen document for audio capture
+    // Receives "start-capture" message from background with tab streamId
+    // Sets up AudioContext with TWO separate AudioWorkletNodes (tab + mic)
+    // Posts PCM16 LE mono 16kHz frames via port.postMessage to background
+
+    let audioContext = null;
+    let isRecording = false;
+    let currentStreamId = '';
+
+    // Receive start-capture from background
+    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      if (message.type === 'start-capture') {
+        currentStreamId = message.streamId;
+        initAudioCapture();
+        sendResponse({ success: true });
+      }
+      if (message.type === 'stop-capture') {
+        tearDownCapture();
+        sendResponse({ success: true });
+      }
+      return true;
+    });
+
+    function initAudioCapture() {
+      if (isRecording) return;
+      isRecording = true;
+
+      // 1. Get tab audio stream using streamId from background
+      chrome.tabCapture.getTab({ audio: true, video: false, streamId: currentStreamId }, (tabStreamResult) => {
+        // 2. Get microphone stream
+        navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+          video: false,
+        }).then((micStreamResult) => {
+          const tabStream = tabStreamResult;
+          const micStream = micStreamResult;
+
+          // 3. Set up AudioContext at 16kHz
+          audioContext = new AudioContext({ sampleRate: 16000 });
+
+          // 4. Load the PCM processor worklet
+          audioContext.audioWorklet.addModule('/worklet.js').then(() => {
+            // Create TWO separate AudioWorkletNodes — one per source
+            // so channels stay identifiable (tab vs mic)
+            
+            const tabWorklet = new audioContext.WorkletNode('pcm-processor', {
+              parameterData: [{ name: 'sourceType', value: 'others' }]
+            });
+
+            const micWorklet = new audioContext.WorkletNode('pcm-processor', {
+              parameterData: [{ name: 'sourceType', value: 'you' }]
+            });
+
+            // Connect tab stream to tab worklet ("others") — remote participants
+            const tabTrack = tabStream.getAudioTracks()[0];
+            if (tabTrack) {
+              const tabSource = audioContext.createMediaStreamSource(new MediaStream([tabTrack]));
+              tabSource.connect(tabWorklet);
+            }
+
+            // Connect mic stream to mic worklet ("you") — local user
+            const micTrack = micStream.getAudioTracks()[0];
+            if (micTrack) {
+              const micSource = audioContext.createMediaStreamSource(new MediaStream([micTrack]));
+              micSource.connect(micWorklet);
+            }
+
+            // Both worklet nodes post messages to background
+            // with their respective source identifiers
+            tabWorklet.onmessage = (event) => {
+              // Tab audio frames posted as "others" (remote participants)
+              chrome.runtime.sendMessage({
+                type: 'pcm-frame',
+                source: 'others',
+                sampleRate: event.sampleRate,
+                data: event.data // ArrayBuffer transferred
+              });
+            };
+
+            micWorklet.onmessage = (event) => {
+              // Mic audio frames posted as "you" (local user)
+              chrome.runtime.sendMessage({
+                type: 'pcm-frame',
+                source: 'you',
+                sampleRate: event.sampleRate,
+                data: event.data // ArrayBuffer transferred
+              });
+            };
+
+            // Connect worklet nodes to audio destination (quietly)
+            // The primary purpose is capture, but we need to connect 
+            // to avoid AudioContext suspension
+            tabWorklet.connect(audioContext.destination);
+            micWorklet.connect(audioContext.destination);
+
+            // Notify background capture is active
+            chrome.runtime.sendMessage({ type: 'capture_started' });
+          }).catch(err => {
+            console.error('Failed to load worklet module:', err);
+            tearDownCapture();
+          });
+        }).catch(err => {
+          console.error('Failed to get mic stream:', err);
+          tearDownCapture();
+        });
+      });
+    }
+
+    function tearDownCapture() {
+      isRecording = false;
+
+      // Disconnect worklet nodes
+      if (tabWorklet) {
+        try { tabWorklet.disconnect(); } catch(e) {}
+        tabWorklet = null;
+      }
+      if (micWorklet) {
+        try { micWorklet.disconnect(); } catch(e) {}
+        micWorklet = null;
+      }
+
+      // Close audio context
+      if (audioContext) {
+        if (tabStream) tabStream.getTracks().forEach(t => t.stop());
+        if (micStream) micStream.getTracks().forEach(t => t.stop());
+        audioContext.close();
+        audioContext = null;
+      }
+
+      // Clear streams
+      tabStream = null;
+      micStream = null;
+      currentStreamId = '';
+
+      // Notify background
+      chrome.runtime.sendMessage({ type: 'capture_stopped' });
+    }
+  </script>
+</body>
+</html>

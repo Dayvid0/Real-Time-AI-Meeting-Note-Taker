@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "Meeting Notes AI",
+  "version": "1.0.0",
+  "description": "Real-time meeting transcription and AI summaries",
+  "permissions": [
+    "storage",
+    "tabs",
+    "audioCapture",
+    "videoCapture",
+    "offscreenDocument",
+    "identity"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "side_panel": {
+    "default_panel": "panel/panel.html",
+    "open_at_startup": true
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"]
+    }
+  ],
+  "host_permissions": ["<all_urls>"],
+  "offscreen": {
+    "url": "/offscreen.html",
+    "permissions": ["audioCapture"]
+  }
+}

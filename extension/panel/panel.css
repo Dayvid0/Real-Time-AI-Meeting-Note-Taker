@@ -1,0 +1,227 @@
+/* Meeting Notes AI - Side Panel CSS
+   Dark theme, system font, no UI framework */
+
+:root {
+  --bg: #0d1117;
+  --bg-subtle: #1e2127;
+  --fg: #e6e6e6;
+  --muted: #8b949e;
+  --accent: #1f7a1c;
+  --accent-hover: #1a6f1b;
+  --danger: #cf2222;
+  --border: #30363d;
+  --radius: 8px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+  margin: 0;
+  padding: 0;
+}
+
+#panel {
+  width: 400px;
+  background: var(--bg-subtle);
+  color: var(--fg);
+  border-left: 1px solid var(--border);
+  font-size: 13px;
+  display: none;
+  flex-direction: column;
+  height: fit-content;
+}
+
+html[data-panel-opened] body #panel { display: block; }
+
+.header {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.header h1 {
+  font-weight: 600;
+  margin: 0;
+  font-size: 14px;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #e8e8e8;
+  transition: background 0.2s;
+}
+
+.status-dot.connected { background: var(--accent); }
+
+.timer {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 8px 0;
+}
+
+.controls {
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.btn-end {
+  background: var(--danger);
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: var(--radius);
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.btn-end:hover { background: #b22a2a; }
+
+.transcript-container {
+  flex: 1;
+  padding: 12px 16px;
+  overflow-y: auto;
+  font-size: 12px;
+}
+
+.transcript-area {
+  height: 100%;
+}
+
+.transcript-line {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  margin-bottom: 6px;
+  padding: 2px 0;
+}
+
+.speaker-you {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.speaker-others {
+  color: var(--muted);
+}
+
+.timestamp {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.text-you { font-weight: 500; }
+
+.text-others { }
+
+.text-partial {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.no-transcript {
+  color: var(--muted);
+  padding: 20px;
+  font-style: italic;
+}
+
+.summary-container {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-subtle);
+  display: none;
+}
+
+.summary-container.open { display: block; }
+
+.summary-toggle {
+  width: 100%;
+  text-align: left;
+  margin-bottom: 8px;
+  padding: 6px 8px;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  border-radius: var(--radius);
+  transition: background 0.2s;
+}
+
+.summary-toggle:hover { background: rgba(255,255,255,0.06); }
+
+.summary-toggle .arrow { float: right; transition: transform 0.2s; }
+
+.summary-toggle.open .arrow { transform: rotate(180deg); }
+
+.summary-content {
+  white-space: pre-wrap;
+  font-size: 12px;
+  color: var(--fg);
+  max-height: 200px;
+  overflow: auto;
+}
+
+.summary-content.empty { color: var(--muted); font-style: italic; }
+
+.controls-summary {
+  padding: 8px 16px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.btn-collapse {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.history-section {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  display: none;
+}
+
+.history-section.open { display: block; }
+
+.history-section h3 {
+  font-size: 11px;
+  color: var(--muted);
+  margin: 0 0 8px 0;
+  text-transform: uppercase;
+}
+
+.history-list { max-height: 150px; overflow-y: auto; }
+
+.history-list::-webkit-scrollbar { width: 4px; }
+
+.history-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+.history-item {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.history-item:hover { color: var(--accent); }
+
+.history-item.empty { color: var(--muted); font-style: italic; }
