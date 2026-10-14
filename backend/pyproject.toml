@@ -1,0 +1,27 @@
+[project]
+name = "meeting-notes-backend"
+version = "1.0.0"
+description = "Meeting Notes AI backend (FastAPI + Deepgram + OpenAI)"
+requires-python = ">=3.12"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "BLE"]
+ignore = [
+    # `timezone.utc` is intentional and readable; prefer it over `datetime.UTC`.
+    "UP017",
+]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+warn_unused_ignores = true
+check_untyped_defs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+pythonpath = ["."]

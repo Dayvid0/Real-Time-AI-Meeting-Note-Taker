@@ -1,7 +1,8 @@
-fastapi
-uvicorn[standard]
-openai
-httpx
-python-jwt[crypto]
-python-dotenv
-pydantic
+fastapi==0.143.0
+uvicorn[standard]==0.54.0
+openai==3.29.0
+httpx==0.28.1
+PyJWT[crypto]==2.15.1
+python-dotenv==1.2.4
+pydantic==2.14.1
+websockets==17.2

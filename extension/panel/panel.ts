@@ -1,339 +1,405 @@
 /**
  * Meeting Notes AI - Side Panel UI
- * Panel.html + Panel.ts - Live transcript, rolling summary, final notes, meeting history
- * Dark theme, system font, no UI framework
+ *
+ * Live transcript, rolling summary, final notes and meeting history.
+ * Dark theme, system font, no UI framework.
  */
 
-// Panel UI elements reference
-const panel = document.getElementById('panel');
-const transcriptArea = document.getElementById('transcriptArea');
-const liveTimer = document.getElementById('liveTimer');
-const statusDot = document.getElementById('statusDot');
-const meetingTitleEl = document.getElementById('meetingTitle');
-const endMeetingBtn = document.getElementById('endMeetingBtn');
+import { createLogger } from '../logger.js';
 
-// Initialize panel state
+const log = createLogger('panel');
+
+type Speaker = 'you' | 'others';
+
+interface ActionItem {
+  owner?: string;
+  task: string;
+  due?: string | null;
+}
+
+interface MeetingSummary {
+  id: string;
+  title: string;
+  startTime: number;
+  endTime: number;
+}
+
+interface PanelMessage {
+  type: string;
+  status?: string;
+  text?: string;
+  speaker?: Speaker;
+  isFinal?: boolean;
+  summary?: string;
+  keyPoints?: string[];
+  decisions?: string[];
+  action_items?: ActionItem[];
+  actionItems?: ActionItem[];
+  title?: string;
+  meetings?: MeetingSummary[];
+}
+
+interface PanelApi {
+  connectPanel: (meetingId: string, title?: string) => Promise<void>;
+  handlePanelMessage: (message: PanelMessage) => void;
+  addTranscriptUI: (text: string, speaker: Speaker, isFinal: boolean) => void;
+  renderSummaryUI: (summary: string, keyPoints?: string[]) => void;
+  renderHistoryUI: (meetings: MeetingSummary[]) => void;
+}
+
+declare global {
+  interface Window {
+    PanelUI: PanelApi;
+    initPanel: () => Promise<void>;
+  }
+}
+
+// --- State ---
+
 let meetingTitle = 'Meeting';
 let isRecording = false;
 let sessionId = '';
+let activeSocket: WebSocket | null = null;
+let timerInterval: number | null = null;
 
-// Connect to backend WebSocket with token
-async function connectPanel(token, title = 'Meeting') {
+const DEFAULT_BACKEND_URL = 'ws://localhost:8000';
+
+// --- DOM helpers ---
+
+function el<T extends HTMLElement>(id: string): T {
+  const node = document.getElementById(id);
+  if (!node) throw new Error(`Missing required element #${id}`);
+  return node as T;
+}
+
+function pad2(value: number): string {
+  return value.toString().padStart(2, '0');
+}
+
+// --- Connection ---
+
+function getBackendUrl(): Promise<string> {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['backendUrl'], (result) => {
+      const configured = result.backendUrl;
+      resolve(typeof configured === 'string' && configured ? configured : DEFAULT_BACKEND_URL);
+    });
+  });
+}
+
+async function connectPanel(meetingId: string, title = 'Meeting'): Promise<void> {
   meetingTitle = title;
   sessionId = generateSessionId();
+  el<HTMLHeadingElement>('meetingTitle').textContent = meetingTitle;
 
-  // Set meeting title in UI
-  meetingTitleEl.textContent = meetingTitle;
-
-  // Connect WS client
-  const WS_URL = 'wss://' + location.host + '/ws/' + token;
-  const ws = new WebSocket(WS_URL);
+  const baseUrl = await getBackendUrl();
+  const ws = new WebSocket(`${baseUrl}/ws/${encodeURIComponent(meetingId)}`);
+  activeSocket = ws;
 
   ws.onopen = () => {
-    // Send start message
-    ws.send(JSON.stringify({ type: 'start', meeting_title: meetingTitle }));
+    ws.send(JSON.stringify({ type: 'start_meeting', meeting_title: meetingTitle, session_id: sessionId }));
     showStatus('connected');
   };
 
-  ws.onmessage = (event) => {
-    const message = JSON.parse(event.data);
-    handlePanelMessage(message);
+  ws.onmessage = (event: MessageEvent<string>) => {
+    try {
+      handlePanelMessage(JSON.parse(event.data) as PanelMessage);
+    } catch (err) {
+      log.warn('Discarding malformed backend message', err);
+    }
   };
 
   ws.onclose = () => {
     showStatus('disconnected');
-    // Attempt reconnect
-    setTimeout(() => connectPanel(token, meetingTitle), 3000);
+    // Reconnect unless this socket was intentionally replaced.
+    if (activeSocket === ws) {
+      window.setTimeout(() => void connectPanel(meetingId, meetingTitle), 3000);
+    }
   };
 
-  ws.onerror = () => {
-    showStatus('error');
-  };
+  ws.onerror = () => showStatus('error');
 }
 
-// Handle incoming messages from backend
-function handlePanelMessage(message) {
+// --- Message handling ---
+
+function handlePanelMessage(message: PanelMessage): void {
   switch (message.type) {
     case 'status_update':
-      updateStatus(message.status);
+      updateStatus(message.status ?? '');
       break;
 
     case 'transcript':
-      addTranscriptUI(message.text, message.speaker, message.isFinal);
+      addTranscriptUI(message.text ?? '', message.speaker ?? 'others', message.isFinal ?? true);
       break;
 
     case 'summary':
-      // Backend sends {"type": "summary", "kind": "rolling", ...} for rolling summaries
-      // or {"type": "summary"} for rolling without kind flag
-      if (message && message.summary !== undefined) {
+      if (message.summary !== undefined) {
         renderSummaryUI(message.summary, message.keyPoints);
       }
       break;
 
     case 'notes':
-      // Phase 4: Final notes from backend with JSON schema
-      showFinalNotes(message);
-      break;
-
     case 'final_notes':
-      // Backward compatibility: show final notes from legacy message type
       showFinalNotes(message);
       break;
 
     case 'meeting_history':
-      renderHistoryUI(message.meetings);
+      renderHistoryUI(message.meetings ?? []);
       break;
 
     default:
-      console.log('Unhandled panel message:', message.type);
+      log.debug('Unhandled panel message:', message.type);
   }
 }
 
-// Update recording status UI
-function updateStatus(status) {
-  isRecording = status === 'recording';
-  statusDot.className = status === 'recording' ? 'status connected' : 'status';
-  statusDot.title = status;
+// --- Status / timer ---
 
-  if (status === 'recording') {
+function showStatus(state: string): void {
+  const dot = el<HTMLDivElement>('statusDot');
+  const classes: Record<string, string> = {
+    connected: 'status-dot connected',
+    disconnected: 'status-dot',
+    error: 'status-dot error',
+  };
+  dot.className = classes[state] ?? 'status-dot';
+  dot.title = state;
+}
+
+function updateStatus(status: string): void {
+  isRecording = status === 'recording';
+  const dot = el<HTMLDivElement>('statusDot');
+  dot.className = isRecording ? 'status-dot connected' : 'status-dot';
+  dot.title = status;
+
+  if (isRecording) {
     startTimer();
   } else {
     stopTimer();
-    document.getElementById('liveTimer').textContent = '--:--';
+    el<HTMLDivElement>('liveTimer').textContent = '--:--';
   }
 }
 
-// Start live timer
-function startTimer() {
-  const start = new Date().getTime();
-  document.getElementById('liveTimer').style.display = 'block';
-  window.setInterval(() => {
-    const elapsed = new Date().getTime() - start;
-    const mins = Math.floor(elapsed / 60000);
-    const secs = Math.floor((elapsed % 60000) / 1000);
-    document.getElementById('liveTimer').textContent =
-      `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+function startTimer(): void {
+  stopTimer();
+  const start = Date.now();
+  const timerEl = el<HTMLDivElement>('liveTimer');
+  timerEl.style.display = 'block';
+  timerInterval = window.setInterval(() => {
+    const elapsed = Date.now() - start;
+    timerEl.textContent = `${pad2(Math.floor(elapsed / 60000))}:${pad2(
+      Math.floor((elapsed % 60000) / 1000),
+    )}`;
   }, 1000);
 }
 
-// Stop timer
-function stopTimer() {
-  document.getElementById('liveTimer').style.display = 'none';
-  clearInterval(document._timerInterval);
+function stopTimer(): void {
+  el<HTMLDivElement>('liveTimer').style.display = 'none';
+  if (timerInterval !== null) {
+    window.clearInterval(timerInterval);
+    timerInterval = null;
+  }
 }
 
-// Add transcript line to UI
-function addTranscriptUI(text, speaker, isFinal) {
-  const area = transcriptArea;
+// --- Transcript ---
 
-  // Only render FINAL segments; partials render dimmed updating in place
-  if (!isFinal) {
-    // Render partial dimmed, updating in place
-    let found = false;
-    const lines = area.querySelectorAll('.transcript-line');
-    lines.forEach(line => {
-      if (line.dataset.text === text && line.dataset.speaker === speaker) {
-        // Update existing partial
-        line.classList.add('text-partial');
-        line.classList.remove('text-you', 'text-others');
-        found = true;
-      }
-    });
-    if (!found) {
-      const line = document.createElement('div');
-      line.className = 'transcript-line text-partial';
-      line.dataset.text = text;
-      line.dataset.speaker = speaker;
-      const speakerSpan = document.createElement('span');
-      speakerSpan.className = 'speaker-' + speaker;
-      speakerSpan.textContent =
-        speaker.charAt(0).toUpperCase() + speaker.slice(1) + ': ';
-      line.appendChild(speakerSpan);
-      const textSpan = document.createElement('span');
-      textSpan.className = 'text-' + speaker + ' text-partial';
-      textSpan.textContent = text;
-      line.appendChild(textSpan);
-      const ts = new Date();
-      const tsSpan = document.createElement('span');
-      tsSpan.className = 'timestamp';
-      tsSpan.textContent =
-        `${ts.getMinutes().toString().padStart(2, '0')}:${ts.getSeconds().toString().padStart(2, '0')}`;
-      line.appendChild(tsSpan);
-      area.insertBefore(line, area.firstChild);
-    }
-    return;
-  }
-
-  // Final segment
+function buildTranscriptLine(text: string, speaker: Speaker, partial: boolean): HTMLDivElement {
   const line = document.createElement('div');
-  line.className = 'transcript-line';
+  line.className = partial ? 'transcript-line text-partial' : 'transcript-line';
   line.dataset.text = text;
   line.dataset.speaker = speaker;
 
   const speakerSpan = document.createElement('span');
-  speakerSpan.className = 'speaker-' + speaker;
-  speakerSpan.textContent =
-    speaker.charAt(0).toUpperCase() + speaker.slice(1) + ': ';
+  speakerSpan.className = `speaker-${speaker}`;
+  speakerSpan.textContent = `${speaker.charAt(0).toUpperCase()}${speaker.slice(1)}: `;
   line.appendChild(speakerSpan);
 
   const textSpan = document.createElement('span');
-  textSpan.className = 'text-' + speaker;
+  textSpan.className = partial ? `text-${speaker} text-partial` : `text-${speaker}`;
   textSpan.textContent = text;
   line.appendChild(textSpan);
 
-  const ts = new Date();
+  const now = new Date();
   const tsSpan = document.createElement('span');
   tsSpan.className = 'timestamp';
-  tsSpan.textContent =
-    `${ts.getMinutes().toString().padStart(2, '0')}:${ts.getSeconds().toString().padStart(2, '0')}`;
+  tsSpan.textContent = `${pad2(now.getMinutes())}:${pad2(now.getSeconds())}`;
   line.appendChild(tsSpan);
 
-  area.insertBefore(line, area.firstChild);
-
-  // Auto-scroll
-  area.scrollTop = 0;
+  return line;
 }
 
-// Render rolling summary UI
-function renderSummaryUI(summary, keyPoints) {
-  const summaryContainer = document.getElementById('summaryContainer');
-  const summaryContent = document.getElementById('summaryContent');
-  const summaryToggle = document.getElementById('summaryToggle');
-  const collapseBtn = document.getElementById('collapseBtn');
+function addTranscriptUI(text: string, speaker: Speaker, isFinal: boolean): void {
+  const area = el<HTMLDivElement>('transcriptArea');
 
-  if (summary) {
-    summaryContent.textContent = summary;
-    summaryContent.classList.remove('empty');
-  } else {
-    summaryContent.textContent = 'No summary yet';
-    summaryContent.classList.add('empty');
-  }
-
-  // If keyPoints are provided, append them
-  if (keyPoints && keyPoints.length > 0) {
-    const kpList = document.createElement('ul');
-    keyPoints.forEach(point => {
-      const li = document.createElement('li');
-      li.textContent = point;
-      kpList.appendChild(li);
-    });
-    // Insert after summary text
-    const existingKp = summaryContent.parentNode.querySelector('ul');
-    if (existingKp) existingKp.remove();
-    summaryContent.parentNode.appendChild(kpList);
-  }
-
-  summaryContainer.style.display = 'block';
-}
-
-// Show final notes view — handles both old 'final_notes' and new 'notes' message types
-function showFinalNotes(message) {
-  const summaryContainer = document.getElementById('summaryContainer');
-
-  let summaryText = '';
-  let decisions: string[] = [];
-  let actionItems: Array<{ owner: string; task: string; due: string | null }> = [];
-
-  // Handle new 'notes' message type from Phase 4 backend
-  if (message.type === 'notes') {
-    summaryText = message.summary || 'Meeting concluded';
-    decisions = message.decisions || [];
-    actionItems = message.action_items || [];
-  }
-  // Handle old 'final_notes' message type for backward compatibility
-  else if (message.type === 'final_notes' || (message.title !== undefined || message.keyPoints !== undefined)) {
-    summaryText = message.title || 'Meeting concluded';
-    decisions = message.keyPoints || [];
-    // Try to parse action items from legacy format
-    if (message.actionItems && message.actionItems.length > 0) {
-      actionItems = message.actionItems;
+  if (!isFinal) {
+    // Partials render dimmed and update in place.
+    const lines = area.querySelectorAll<HTMLElement>('.transcript-line');
+    for (const line of Array.from(lines)) {
+      if (line.dataset.text === text && line.dataset.speaker === speaker) {
+        line.classList.add('text-partial');
+        line.classList.remove('text-you', 'text-others');
+        return;
+      }
     }
   }
 
-  // Build action items table HTML
-  let actionItemsHtml = '';
-  if (actionItems && actionItems.length > 0) {
-    actionItemsHtml = '<h4>Action Items</h4><table>';
-    actionItems.forEach(item => {
-      const due = item.due ? new Date(item.due).toLocaleDateString() : '—';
-      actionItemsHtml +=
-        `<tr><td>${item.owner || 'Unassigned'}</td><td>${item.task}</td><td>${due}</td></tr>`;
-    });
-    actionItemsHtml += '</table>';
-  }
-
-  // Build decisions list HTML
-  let decisionsHtml = '';
-  if (decisions && decisions.length > 0) {
-    decisionsHtml = '<h4>Decisions</h4><ul>';
-    decisions.forEach(d => {
-      decisionsHtml += `<li>${d}</li>`;
-    });
-    decisionsHtml += '</ul>';
-  }
-
-  summaryContainer.innerHTML = `
-    <h3>Final Notes</h3>
-    <p><strong>Summary:</strong> ${summaryText}</p>
-    ${decisionsHtml}
-    ${actionItemsHtml}
-  `;
-  summaryContainer.style.display = 'block';
+  area.insertBefore(buildTranscriptLine(text, speaker, !isFinal), area.firstChild);
+  if (isFinal) area.scrollTop = 0;
 }
 
-// Render meeting history
-function renderHistoryUI(meetings) {
-  const historySection = document.getElementById('historySection');
-  const historyList = document.getElementById('historyList');
+// --- Summary / notes ---
+
+function renderSummaryUI(summary: string, keyPoints?: string[]): void {
+  const container = el<HTMLDivElement>('summaryContainer');
+  const content = el<HTMLDivElement>('summaryContent');
+
+  content.textContent = summary || 'No summary yet';
+  content.classList.toggle('empty', !summary);
+
+  const parent = content.parentElement;
+  if (parent) {
+    const existingList = parent.querySelector('ul');
+    if (existingList) existingList.remove();
+
+    if (keyPoints && keyPoints.length > 0) {
+      const list = document.createElement('ul');
+      for (const point of keyPoints) {
+        const li = document.createElement('li');
+        li.textContent = point;
+        list.appendChild(li);
+      }
+      parent.appendChild(list);
+    }
+  }
+
+  container.style.display = 'block';
+}
+
+function showFinalNotes(message: PanelMessage): void {
+  const container = el<HTMLDivElement>('summaryContainer');
+
+  let summaryText = 'Meeting concluded';
+  let decisions: string[] = [];
+  let actionItems: ActionItem[] = [];
+
+  if (message.type === 'notes') {
+    summaryText = message.summary || 'Meeting concluded';
+    decisions = message.decisions ?? [];
+    actionItems = message.action_items ?? [];
+  } else {
+    summaryText = message.title || 'Meeting concluded';
+    decisions = message.keyPoints ?? [];
+    actionItems = message.actionItems ?? [];
+  }
+
+  container.replaceChildren();
+
+  const heading = document.createElement('h3');
+  heading.textContent = 'Final Notes';
+  container.appendChild(heading);
+
+  const summaryPara = document.createElement('p');
+  const summaryLabel = document.createElement('strong');
+  summaryLabel.textContent = 'Summary: ';
+  summaryPara.appendChild(summaryLabel);
+  summaryPara.appendChild(document.createTextNode(summaryText));
+  container.appendChild(summaryPara);
+
+  if (decisions.length > 0) {
+    const decisionsHeading = document.createElement('h4');
+    decisionsHeading.textContent = 'Decisions';
+    container.appendChild(decisionsHeading);
+
+    const list = document.createElement('ul');
+    for (const decision of decisions) {
+      const li = document.createElement('li');
+      li.textContent = decision;
+      list.appendChild(li);
+    }
+    container.appendChild(list);
+  }
+
+  if (actionItems.length > 0) {
+    const itemsHeading = document.createElement('h4');
+    itemsHeading.textContent = 'Action Items';
+    container.appendChild(itemsHeading);
+
+    const table = document.createElement('table');
+    for (const item of actionItems) {
+      const row = document.createElement('tr');
+      const owner = document.createElement('td');
+      owner.textContent = item.owner || 'Unassigned';
+      const task = document.createElement('td');
+      task.textContent = item.task;
+      const due = document.createElement('td');
+      due.textContent = item.due ? new Date(item.due).toLocaleDateString() : '—';
+      row.append(owner, task, due);
+      table.appendChild(row);
+    }
+    container.appendChild(table);
+  }
+
+  container.style.display = 'block';
+}
+
+// --- History ---
+
+function renderHistoryUI(meetings: MeetingSummary[]): void {
+  const section = el<HTMLDivElement>('historySection');
+  const list = el<HTMLDivElement>('historyList');
+  list.replaceChildren();
 
   if (!meetings || meetings.length === 0) {
-    historyList.innerHTML = '<div class="history-item empty">No meetings recorded</div>';
-    historySection.style.display = 'block';
+    const empty = document.createElement('div');
+    empty.className = 'history-item empty';
+    empty.textContent = 'No meetings recorded';
+    list.appendChild(empty);
+    section.style.display = 'block';
     return;
   }
 
-  historyList.innerHTML = meetings.map(m => `
-    <div class="history-item" data-meeting-id="${m.id}" title="${m.title} on ${new Date(m.startTime).toLocaleString()}">
-      ${m.title.substring(0, 30)}${m.title.length > 30 ? '...' : ''} — ${((m.endTime - m.startTime) / 60000).toFixed(1)}min
-    </div>
-  `).join('');
+  for (const meeting of meetings) {
+    const item = document.createElement('div');
+    item.className = 'history-item';
+    item.dataset.meetingId = meeting.id;
+    item.title = `${meeting.title} on ${new Date(meeting.startTime).toLocaleString()}`;
 
-  historySection.style.display = 'block';
+    const title =
+      meeting.title.length > 30 ? `${meeting.title.slice(0, 30)}...` : meeting.title;
+    item.textContent = `${title} — ${((meeting.endTime - meeting.startTime) / 60000).toFixed(1)}min`;
 
-  // Add click handlers for restoring meetings
-  document.querySelectorAll('.history-item').forEach(item => {
     item.addEventListener('click', () => {
-      const meetingId = item.getAttribute('data-meeting-id');
-      chrome.runtime.sendMessage({
-        type: 'restore_meeting',
-        meetingId: meetingId
-      });
+      chrome.runtime.sendMessage({ type: 'restore_meeting', meetingId: meeting.id });
     });
-  });
+
+    list.appendChild(item);
+  }
+
+  section.style.display = 'block';
 }
 
-// Generate a session ID
-function generateSessionId() {
-  return 'sess_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+// --- Misc ---
+
+function generateSessionId(): string {
+  return `sess_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
 }
 
-// UI event handlers
+// --- Wiring ---
+
 document.addEventListener('DOMContentLoaded', () => {
-  endMeetingBtn.addEventListener('click', () => {
+  el<HTMLButtonElement>('endMeetingBtn').addEventListener('click', () => {
     chrome.runtime.sendMessage({ type: 'end_meeting' });
   });
 });
 
-// Export for testing/debugging
+// Exposed for background.js and manual debugging.
 window.PanelUI = {
   connectPanel,
   handlePanelMessage,
   addTranscriptUI,
   renderSummaryUI,
-  renderHistoryUI
+  renderHistoryUI,
 };
 
-// Initialization — called from background.js
 window.initPanel = async () => {
-  console.log('Panel initialized');
+  log.info('Panel initialized');
 };

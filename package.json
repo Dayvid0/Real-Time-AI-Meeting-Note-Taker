@@ -1,10 +1,15 @@
 {
   "name": "meeting-notes",
   "version": "1.0.0",
+  "private": true,
   "description": "Meeting Notes AI - Chrome MV3 extension",
-  "main": "dist/extension.js",
+  "type": "module",
   "scripts": {
     "build": "vite build",
+    "dev": "vite build --watch",
+    "lint": "eslint .",
+    "typecheck": "tsc -p extension/tsconfig.json --noEmit",
+    "verify": "npm run lint && npm run typecheck && npm run build",
     "preview": "vite preview"
   },
   "keywords": [
@@ -13,15 +18,17 @@
     "meeting",
     "transcription"
   ],
-  "author": "",
   "license": "MIT",
-  "type": "module",
-  "devDependencies": {
-    "@types/chrome": "0.3.5",
-    "typescript": "^5.6.0",
-    "vite": "^5.4.8"
+  "engines": {
+    "node": ">=18"
   },
-  "dependencies": {
-    "idb": "^8.0.4"
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@types/chrome": "0.3.5",
+    "eslint": "^9.39.5",
+    "globals": "^15.15.0",
+    "typescript": "^5.6.0",
+    "typescript-eslint": "^8.71.2",
+    "vite": "^5.4.8"
   }
 }

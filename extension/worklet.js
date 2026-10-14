@@ -1,72 +1,53 @@
 /**
- * AudioWorklet processor for Meeting Notes AI
- * Converts float32 audio to PCM16 LE mono 16kHz frames.
- * Posts fixed-size frames (4096 samples) via port.postMessage
- * with transfer ArrayBuffers. Tagged by source type ("you" = tab audio,
- * "others" = local mic audio).
+ * AudioWorklet processor for Meeting Notes AI.
+ *
+ * Converts float32 audio to PCM16 LE mono 16 kHz frames and posts fixed-size
+ * frames (4096 samples ≈ 256 ms) to the offscreen document with the
+ * source-tagged ArrayBuffer transferred for zero-copy hand-off.
  */
 
-registerProcessor('pcm-processor', class PcmProcessorProc extends AudioWorkletProcessor {
+class PcmProcessor extends AudioWorkletProcessor {
   constructor() {
     super();
     this.sourceType = 'unknown';
-    this.sampleRate = 16000;
-    this.frameSize = 4096; // 256ms at 16kHz
+    this.frameSize = 4096;
+    this.port.onmessage = (event) => {
+      if (event.data && typeof event.data.sourceType === 'string') {
+        this.sourceType = event.data.sourceType;
+      }
+    };
   }
 
-  // Called by offscreen.html to set the source type ("you" or "others")
-  setSourceType(type) {
-    this.sourceType = type;
-  }
-
-  process(inputs, outputs, parameters) {
-    // inputs[0] is the float32 audio data from the source stream
+  process(inputs) {
     const input = inputs[0];
-    
-    if (!input || input.length === 0) {
+    if (!input || input.length === 0 || !input[0] || input[0].length === 0) {
       return true;
     }
 
-    // Get the first channel's data (mono conversion)
-    // If stereo, we average channels or take first
-    const floatChannel = input[0];
-    
-    if (!floatChannel || floatChannel.length === 0) {
-      return true;
-    }
-
-    // We'll produce frames of 4096 samples each
-    const numCompleteFrames = Math.floor(floatChannel.length / this.frameSize);
+    // Mono downmix: use the first channel.
+    const channel = input[0];
+    const numCompleteFrames = Math.floor(channel.length / this.frameSize);
 
     for (let f = 0; f < numCompleteFrames; f++) {
-      // Extract frame
       const frameStart = f * this.frameSize;
-      const frameEnd = frameStart + this.frameSize;
-      const frameFloat32 = floatChannel.slice(frameStart, frameEnd);
-      
-      // Convert float32 to PCM16 LE
-      const pcm16Buffer = new ArrayBuffer(this.frameSize * 2); // 2 bytes per sample
+
+      const pcm16Buffer = new ArrayBuffer(this.frameSize * 2);
       const pcm16View = new Int16Array(pcm16Buffer);
-      
+
       for (let i = 0; i < this.frameSize; i++) {
-        const val = Math.max(-1, Math.min(1, frameFloat32[i]));
-        pcm16View[i] = Math.floor(val * 32767);
+        const sample = Math.max(-1, Math.min(1, channel[frameStart + i]));
+        pcm16View[i] = Math.floor(sample * 32767);
       }
-      
-      // Post frame via port.message with transfer ArrayBuffer
-      // The message includes source type and sample rate
-      // The ArrayBuffer is transferred for zero-copy
-      this.port.postMessage({
-        source: this.sourceType,
-        sampleRate: this.sampleRate,
-        // The ArrayBuffer is in the transfer list below
-      }, [pcm16Buffer]);
+
+      this.port.postMessage(
+        { source: this.sourceType, sampleRate, data: pcm16Buffer },
+        [pcm16Buffer],
+      );
     }
 
-    // If there are remaining samples that don't fill a complete frame,
-    // keep them in a buffer for the next processing cycle
-    // (simplified: we just drop them for Phase 1)
-
+    // Any trailing samples that do not fill a complete frame are dropped.
     return true;
   }
-});
+}
+
+registerProcessor('pcm-processor', PcmProcessor);

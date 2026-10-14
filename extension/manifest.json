@@ -2,31 +2,34 @@
   "manifest_version": 3,
   "name": "Meeting Notes AI",
   "version": "1.0.0",
-  "description": "Real-time meeting transcription and AI summaries",
+  "description": "Real-time meeting transcription with AI summaries, decisions and action items.",
+  "minimum_chrome_version": "116",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "Start Meeting Notes capture",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
   "permissions": [
     "storage",
-    "tabs",
-    "audioCapture",
-    "videoCapture",
-    "offscreenDocument",
-    "identity"
+    "tabCapture",
+    "offscreen",
+    "sidePanel"
   ],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type": "module"
   },
   "side_panel": {
-    "default_panel": "panel/panel.html",
-    "open_at_startup": true
-  },
-  "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "js": ["content.js"]
-    }
-  ],
-  "host_permissions": ["<all_urls>"],
-  "offscreen": {
-    "url": "/offscreen.html",
-    "permissions": ["audioCapture"]
+    "default_panel": "panel/panel.html"
   }
 }
