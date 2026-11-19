@@ -1,92 +1,39 @@
-/**
- * Meeting Notes AI — Chrome MV3 background service worker.
- *
- * Responsibilities:
- *  - open the offscreen document that performs audio capture,
- *  - obtain a tab-capture stream id on user gesture,
- *  - relay capture lifecycle events between the offscreen document and the UI.
- */
+// Service worker: session lifecycle only. It cannot hold an AudioContext (MV3),
+// so the offscreen document does the audio work.
+let capturing = false;
 
-import { createLogger } from './logger.js';
-
-const log = createLogger('background');
-
-const OFFSCREEN_URL = '/offscreen.html';
-
-let offscreenOpen = false;
-
-async function ensureOffscreenDocument() {
-  if (offscreenOpen) return true;
-  try {
-    await chrome.offscreen.createDocument({
-      url: OFFSCREEN_URL,
-      reasons: ['USER_MEDIA'],
-      justification: 'Capture meeting tab audio for real-time transcription.',
-    });
-    offscreenOpen = true;
-    return true;
-  } catch (e) {
-    // Error code 40: an offscreen document already exists.
-    if (e && e.code === 40) {
-      offscreenOpen = true;
-      return true;
-    }
-    log.error('Failed to create offscreen document', e);
-    return false;
-  }
-}
-
-function saveSessionState(state) {
-  return chrome.storage.local.set({ 'meeting-session': state });
-}
-
-function loadSessionState() {
-  return new Promise((resolve) => {
-    chrome.storage.local.get(['meeting-session'], (result) => {
-      resolve(result['meeting-session'] ?? null);
-    });
+async function ensureOffscreen() {
+  if (await chrome.offscreen.hasDocument()) return;
+  await chrome.offscreen.createDocument({
+    url: 'offscreen.html',
+    reasons: ['USER_MEDIA'],
+    justification: 'Capture tab and microphone audio'
   });
 }
 
-async function hasConsent() {
-  const result = await chrome.storage.local.get(['consentGiven']);
-  return result.consentGiven === true;
-}
+const toPanel = (m) => chrome.runtime.sendMessage({ target: 'panel', ...m }).catch(() => {});
 
 chrome.action.onClicked.addListener(async (tab) => {
+  chrome.sidePanel.open({ tabId: tab.id }); // must run inside the click gesture
+  if (capturing) return stop();
   try {
-    // Gate capture on explicit consent. A production build should surface a
-    // real consent dialog here; for now we record the acknowledgement.
-    if (!(await hasConsent())) {
-      await chrome.storage.local.set({ consentGiven: true });
-    }
-
-    const ready = await ensureOffscreenDocument();
-    if (!ready || !tab || tab.id === undefined) return;
-
+    // The stream ID expires within seconds, so fetch and use it immediately.
     const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id });
-    chrome.runtime.sendMessage({ type: 'start-capture', streamId: streamId || '' });
+    await ensureOffscreen();
+    capturing = true;
+    chrome.runtime.sendMessage({ target: 'offscreen', type: 'start', streamId });
   } catch (e) {
-    log.error('Failed to start capture', e);
+    toPanel({ type: 'error', message: String(e.message || e) });
   }
 });
 
-chrome.runtime.onMessage.addListener((message) => {
-  switch (message.type) {
-    case 'start-capture':
-      saveSessionState({ status: 'recording' });
-      break;
-    case 'stop-capture':
-      saveSessionState({ status: 'finalized' });
-      chrome.runtime.sendMessage({ type: 'capture_stopped' });
-      break;
-    case 'pcm-frame':
-      log.debug('PCM frame', message.source, message.sampleRate);
-      break;
-    default:
-      break;
-  }
-});
+function stop() {
+  capturing = false;
+  chrome.runtime.sendMessage({ target: 'offscreen', type: 'stop' });
+}
 
-// Exported for potential unit testing.
-export { ensureOffscreenDocument, loadSessionState, saveSessionState, hasConsent };
+chrome.runtime.onMessage.addListener((m) => {
+  if (m.target !== 'background') return;
+  if (m.type === 'stop') stop();
+  if (m.type === 'mic-denied') chrome.tabs.create({ url: 'mic-permission.html' });
+});

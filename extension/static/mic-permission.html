@@ -1,0 +1,25 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Enable your microphone · Meeting Notes</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root { color-scheme: light dark; font: 15px/1.6 system-ui; color: #153043; background: #f7faf9; }
+body { max-width: 520px; margin: 28px auto; padding: 0 24px; }
+h1 { display: flex; align-items: center; gap: 12px; font-size: 21px; line-height: 1.3; }
+button { font: inherit; background: #087d70; color: white; border: 1px solid #087d70; border-radius: 9px; padding: 10px 16px; cursor: pointer; }
+button:disabled { opacity: .6; cursor: wait; }
+#back { color: inherit; background: transparent; border-color: #97aaa6; }
+.controls { display: flex; gap: 10px; flex-wrap: wrap; }
+#result { background: #e9f7f2; padding: 12px 16px; border-radius: 9px; }
+summary { cursor: pointer; font-weight: 600; }
+code { overflow-wrap: anywhere; }
+.small { font-size: 12px; }
+:focus-visible { outline: 3px solid #24a99b; outline-offset: 3px; }
+@media (prefers-color-scheme: dark) { :root { background: #101d27; color: #e0eeef; } #result { background: #143c37; } }
+</style></head><body>
+<h1><img src="icons/icon-48.png" width="40" height="40" alt="">Enable your microphone</h1>
+<p>Your meeting stays open in Brave. Allow access once, and we’ll take you straight back. If you’re recording, your voice joins the same meeting.</p>
+<div class="controls"><button id="allow" type="button">Allow microphone</button><button id="back" type="button">Back to meeting</button></div>
+<p id="result" role="status">Ready when you are. Choose Allow microphone above.</p>
+<details><summary>Microphone blocked?</summary><p>In Brave, open <code>brave://settings/content/microphone</code>, choose your microphone, and allow Meeting Notes. Then return here and try again.</p><p>Also check your computer’s Sound input settings if no microphone is available.</p></details>
+<p class="small">This permission check releases the microphone immediately. It does not save or send audio. An active meeting captures audio after access is allowed.</p>
+<script src="mic-permission.js"></script>
+</body></html>

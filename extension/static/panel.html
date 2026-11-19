@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Meeting Notes</title>
+  <link rel="stylesheet" href="panel.css">
+</head>
+<body>
+  <section id="consent-screen" class="consent-screen" aria-labelledby="consent-title" hidden>
+    <div class="consent-card">
+      <img src="icons/icon-128.png" width="68" height="68" alt="">
+      <p class="consent-kicker">Before your first meeting</p>
+      <h1 id="consent-title">Record openly and with permission</h1>
+      <p>Meeting Notes sends live audio to Deepgram for transcription and sends finalized transcript text to your configured model for notes. Meetings are saved in this browser; raw audio is not saved.</p>
+      <p>Tell everyone that transcription is active and get participant consent before you start. Follow the recording laws and policies that apply to your meeting.</p>
+      <button id="consent-accept" class="primary" type="button">I understand</button>
+      <p id="consent-error" class="warning" role="alert" hidden></p>
+    </div>
+  </section>
+  <aside id="privacy-reminder" class="privacy-reminder" role="status" hidden>
+    <span>Reminder: tell participants transcription is active and confirm consent.</span>
+    <button id="privacy-reminder-dismiss" type="button">Got it</button>
+  </aside>
+  <header class="header">
+    <div class="brand-row">
+      <div class="brand"><img src="icons/icon-48.png" width="36" height="36" alt=""><div><h1>Meeting Notes</h1><span class="eyebrow">Stay in the conversation</span></div></div>
+      <button id="close-panel" class="close-panel" type="button" title="Close Meeting Notes" disabled><span aria-hidden="true">×</span> Close</button>
+    </div>
+    <div class="status-row"><span id="status" class="status" data-state="idle" role="status"><span class="status-dot" aria-hidden="true"></span><span id="status-label">Ready</span></span><span id="capture-indicator" hidden>Capturing audio</span><time id="elapsed" aria-label="Meeting duration">00:00</time></div>
+    <label class="meeting-title-label" for="meeting-title">Meeting title</label><input id="meeting-title" class="meeting-title" maxlength="200" placeholder="e.g. Weekly team check-in">
+    <div class="controls"><button id="start" class="primary" type="button" disabled>Start meeting</button><button id="stop" class="stop" type="button" hidden>Stop</button><button id="microphone-setup" class="microphone-button" type="button">Enable microphone</button></div>
+    <p id="capture-hint" class="hint">Open your meeting tab, then press Start.</p>
+    <p id="warning" class="warning" role="alert" hidden></p>
+  </header>
+  <nav class="view-tabs" aria-label="Meeting views"><button id="live-tab" type="button" aria-pressed="true">Transcript</button><button id="notes-tab" type="button" aria-pressed="false">Notes</button><button id="history-tab" type="button" aria-pressed="false">History</button></nav>
+  <p id="storage-status" class="storage-status" role="status">Meetings are saved on this browser.</p>
+  <div id="saved-banner" class="saved-banner" hidden><span>Viewing: <strong id="saved-title"></strong></span><button id="return-live" type="button">Back to current</button></div>
+  <main class="main">
+    <section id="live-view" class="live-view"><div class="section-heading"><h2 id="transcript-heading">Live transcript</h2><span id="line-count">0 lines</span></div>
+    <div id="output" class="transcript-scroll" tabindex="0" role="region" aria-label="Meeting transcript" aria-live="off">
+      <div id="empty" class="empty">
+        <div class="empty-mark" aria-hidden="true"><img src="icons/icon-128.png" width="58" height="58" alt=""></div>
+        <h3 id="empty-title">A little less note-taking.</h3>
+        <p id="empty-text">Start your meeting and the conversation will appear here, with your voice and others clearly labeled.</p>
+      </div>
+      <ol id="transcript" class="transcript"></ol>
+    </div>
+    <div id="follow-bar" class="follow-bar" hidden><span>Auto-scroll paused</span><button id="jump" type="button">Jump to latest <span aria-hidden="true">↓</span></button></div>
+    </section>
+    <section id="notes-view" class="notes-view" tabindex="0" aria-label="Meeting notes" hidden>
+      <h2 id="notes-title">Meeting notes</h2><p id="notes-status" class="hint">Final notes appear after you stop the meeting.</p>
+      <div id="notes-content"></div>
+      <div class="export-controls"><button id="copy-notes" type="button">Copy Markdown</button><button id="export-notes" type="button">Export .md</button></div>
+      <p id="export-status" class="hint" role="status"></p>
+    </section>
+    <section id="history-view" class="history-view" hidden>
+      <h2>Saved meetings</h2><label class="sr-only" for="history-search">Search meetings</label><input id="history-search" type="search" placeholder="Search title, transcript or notes">
+      <p id="history-status" class="hint" role="status"></p><ol id="history-list" class="history-list"></ol>
+    </section>
+  </main>
+  <footer>
+    <details class="summary"><summary><span>Rolling summary</span><span id="summary-label" class="unavailable">Waiting</span></summary><p id="rolling-summary">A summary will appear after about a minute of conversation.</p></details>
+    <p class="privacy">Audio goes to Deepgram; transcript text goes to your configured model for notes. Meetings are saved in this browser. No raw audio is saved.</p>
+  </footer>
+  <script src="panel.js"></script>
+</body>
+</html>

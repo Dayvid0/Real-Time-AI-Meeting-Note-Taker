@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <title>Meeting Notes — note with audio waveform</title>
+  <defs>
+    <linearGradient id="tile" x1="12" y1="8" x2="116" y2="120" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#183A58"/>
+      <stop offset="1" stop-color="#091829"/>
+    </linearGradient>
+    <linearGradient id="paper" x1="30" y1="20" x2="100" y2="106" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#CEFFF0"/>
+      <stop offset="1" stop-color="#42DCC4"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="124" height="124" rx="30" fill="url(#tile)"/>
+  <path d="M39 20H79L102 43V95Q102 108 89 108H39Q26 108 26 95V33Q26 20 39 20Z" fill="url(#paper)"/>
+  <path d="M79 20V34Q79 43 88 43H102Z" fill="#169F99"/>
+  <g stroke="#102B42" stroke-width="6" stroke-linecap="round">
+    <path d="M45 57V65M55 51V71M65 45V77M75 53V69M85 58V64"/>
+    <path d="M45 90H78"/>
+  </g>
+</svg>
