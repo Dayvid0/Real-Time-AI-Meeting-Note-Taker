@@ -1,27 +1,9 @@
-# Version control / CI
+.env
 .git
 .github
-.gitignore
-
-# Node / extension build artifacts
-node_modules
-dist
-extension
-store
-scripts
-eslint.config.js
-vite.config.js
-package.json
-package-lock.json
-
-# Python
-backend/.venv
-backend/__pycache__
-backend/tests
+extension/node_modules
+extension/dist
+server/.venv
+server/.ruff_cache
 **/__pycache__
-**/*.pyc
-.env
-*.egg-info
-
-# Docs
-*.md
+*.pyc

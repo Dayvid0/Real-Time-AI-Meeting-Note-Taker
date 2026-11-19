@@ -2,90 +2,60 @@ name: CI
 
 on:
   push:
-    branches: [main]
   pull_request:
 
 permissions:
   contents: read
 
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  backend:
-    name: Backend (ruff, mypy, pytest)
+  verify:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: backend/requirements-dev.txt
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements-dev.txt
-
-      - name: Lint (ruff)
-        run: ruff check .
-
-      - name: Type-check (mypy)
-        run: mypy .
-
-      - name: Test (pytest)
-        run: pytest
-
-  extension:
-    name: Extension (eslint, tsc, vite build)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
+          cache-dependency-path: server/requirements-dev.txt
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Lint (eslint)
-        run: npm run lint -- --max-warnings 0
-
-      - name: Type-check (tsc)
-        run: npm run typecheck
-
-      - name: Build bundle (vite)
-        run: npm run build
-
-      - name: Upload extension bundle
-        uses: actions/upload-artifact@v4
+          cache-dependency-path: extension/package-lock.json
+      - run: python -m pip install -r server/requirements-dev.txt
+      - run: npm ci
+        working-directory: extension
+      - run: ruff check app tests benchmarks
+        working-directory: server
+      - run: ruff format --check app tests benchmarks
+        working-directory: server
+      - run: python -m unittest discover -s tests -v
+        working-directory: server
+      - run: npm run check
+        working-directory: extension
+      - run: npm run lint
+        working-directory: extension
+      - run: npm test
+        working-directory: extension
+      - run: RELAY_URL=https://relay.example.invalid npm run build
+        working-directory: extension
+      - run: npm run package
+        working-directory: extension
+      - uses: actions/upload-artifact@v4
         with:
-          name: extension-bundle
-          path: dist/extension
-          if-no-files-found: error
+          name: meeting-notes-extension
+          path: extension/meeting-notes-extension.zip
+      - run: docker build -f server/Dockerfile -t meeting-notes-relay:ci .
 
-  docker:
-    name: Docker image
+  deploy:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: verify
     runs-on: ubuntu-latest
-    needs: backend
+    concurrency: production
     steps:
       - uses: actions/checkout@v4
-
-      - uses: docker/setup-buildx-action@v3
-
-      - name: Build image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: false
-          tags: meeting-notes-backend:ci
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - run: flyctl deploy --remote-only --app "$FLY_APP"
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          FLY_APP: ${{ secrets.FLY_APP }}
